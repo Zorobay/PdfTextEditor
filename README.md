@@ -15,3 +15,7 @@ poetry install
 ```bash
 poetry run python main.py
 ```
+
+## TODO
+
+1. [ ] Add info spinner when loading pdf 

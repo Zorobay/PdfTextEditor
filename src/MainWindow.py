@@ -1,7 +1,10 @@
-﻿from PyQt6.QtCore import Qt
+﻿import uuid
+
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import QMainWindow, QStatusBar, QToolBar, QLabel, QFileDialog, QMessageBox, QDockWidget
 
+from src import RegEditor
 from src.PdfDocument import PdfDocument
 from src.PdfPageView import PdfPageView
 from src.PdfWordsWidget import PdfWordsWidget
@@ -17,25 +20,34 @@ class MainWindow(QMainWindow):
 
         # Actions
         self.toggle_text_boxes_action = QAction('Show Text Boxes', self)
-        
+        self.toggle_show_space_boxes_action = QAction('Show Space Text', self)
+
         # Widgets
         self.page_view = PdfPageView(self)
         self.status_label = QLabel('No document loaded')
         self.status_bar = self.build_status_bar()
-        self.tool_bar = self.build_tool_bar()
+        self.file_tool_bar = None
+        self.word_tool_bar = None
         self.right_dock_widget = QDockWidget('Words', self)
-        self.pdf_words_widget = PdfWordsWidget()       
+        self.pdf_words_widget = PdfWordsWidget()
+        self.build_tool_bar()
 
         # Config
         self.setWindowTitle(self._get_window_title())
         self.resize(1200, 1200)
         self.setCentralWidget(self.page_view)
 
+        # Signals
+        self.pdf_words_widget.word_selected.connect(self._on_word_selected)
+        self.pdf_words_widget.word_deleted.connect(self._on_words_row_deleted)
+        self.page_view.word_selected.connect(self._on_word_selected)
+        self.page_view.word_resized.connect(self._on_word_resize)
+        # self.pdf_words_widget.word_edited.connect(self._on_word_edited)
+
         # Configure dockable widgets
-        self.pdf_words_widget.row_selected.connect(self._on_words_row_selected)
-        self.pdf_words_widget.row_deleted.connect(self._on_words_row_deleted)
         self.right_dock_widget.setWidget(self.pdf_words_widget)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock_widget)
+        self.resizeDocks([self.right_dock_widget], [300], Qt.Orientation.Horizontal)
 
     def build_status_bar(self) -> QStatusBar:
         status_bar = QStatusBar()
@@ -43,83 +55,122 @@ class MainWindow(QMainWindow):
         self.setStatusBar(status_bar)
         return status_bar
 
-    def build_tool_bar(self) -> QToolBar:
-        tool_bar = QToolBar()
+    def build_tool_bar(self) -> None:
+        self.file_tool_bar = QToolBar('File', self)
 
         open_action = QAction('Open', self)
         open_action.triggered.connect(self._on_open_action_triggered)
-        tool_bar.addAction(open_action)
+        self.file_tool_bar.addAction(open_action)
 
-        tool_bar.addSeparator()
+        save_page_action = QAction('Save As', self)
+        save_page_action.triggered.connect(self._on_save_action_triggered)
+        self.file_tool_bar.addAction(save_page_action)
+        
+        save_debug_action = QAction('Save Debug As', self)
+        save_debug_action.triggered.connect(self._on_save_debug_action_triggered)
+        self.file_tool_bar.addAction(save_debug_action)
+
+        self.file_tool_bar.addSeparator()
 
         prev_page_action = QAction('< Prev', self)
         prev_page_action.setShortcut(QKeySequence.StandardKey.MoveToPreviousPage)
         prev_page_action.triggered.connect(self._on_prev_page)
-        tool_bar.addAction(prev_page_action)
+        self.file_tool_bar.addAction(prev_page_action)
 
         next_page_action = QAction('Next >', self)
         next_page_action.setShortcut(QKeySequence.StandardKey.MoveToNextPage)
         next_page_action.triggered.connect(self._on_next_page)
-        tool_bar.addAction(next_page_action)
+        self.file_tool_bar.addAction(next_page_action)
 
-        tool_bar.addSeparator()
+        self.file_tool_bar.addSeparator()
 
         zoom_out_action = QAction('Zoom -', self)
         zoom_out_action.setShortcut(QKeySequence.StandardKey.ZoomIn)
         zoom_out_action.triggered.connect(self._zoom_out)
-        tool_bar.addAction(zoom_out_action)
+        self.file_tool_bar.addAction(zoom_out_action)
 
         zoom_in_action = QAction('Zoom +', self)
         zoom_in_action.setShortcut(QKeySequence.StandardKey.ZoomIn)
         zoom_in_action.triggered.connect(self._zoom_in)
-        tool_bar.addAction(zoom_in_action)
+        self.file_tool_bar.addAction(zoom_in_action)
 
-        tool_bar.addSeparator()
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.file_tool_bar)
+        self.addToolBarBreak(Qt.ToolBarArea.TopToolBarArea)
+
+        self.word_tool_bar = QToolBar('Words', self)
+
         self.toggle_text_boxes_action.setCheckable(True)
+        self.toggle_text_boxes_action.setToolTip('Toggles between showing and hiding bounding boxes around text words')
+        self.toggle_text_boxes_action.setStatusTip(
+            'Toggles between showing and hiding bounding boxes around text words')
         self.toggle_text_boxes_action.toggled.connect(self._on_toggle_text_boxes)
-        tool_bar.addAction(self.toggle_text_boxes_action)
-        
-        tool_bar.addSeparator()
-        save_page_action = QAction('Save Page', self)
-        save_page_action.triggered.connect(lambda: self.doc.save_current_page())
-        tool_bar.addAction(save_page_action)
+        self.word_tool_bar.addAction(self.toggle_text_boxes_action)
 
-        self.addToolBar(tool_bar)
-        return tool_bar
+        self.toggle_show_space_boxes_action.setCheckable(True)
+        self.toggle_show_space_boxes_action.toggled.connect(self._on_toggle_show_space_boxes)
+        self.word_tool_bar.addAction(self.toggle_show_space_boxes_action)
+
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.word_tool_bar)
 
     def _on_open_action_triggered(self):
-        path, _ = QFileDialog.getOpenFileName(self, 'Open PDF', r'C:\Users\Sebastian\Hegardt\static_media\pdfs',
-                                              'PDF Files (*.pdf)')
+        last_path = RegEditor.get_last_path()
+        path, _ = QFileDialog.getOpenFileName(self, 'Open PDF', last_path, 'PDF Files (*.pdf)')
 
         if path:
             try:
-                self.doc = PdfDocument(path)
-                self.page_view.render_page(self.doc.get_current_page())
-                self._update_status()
-                self._update_word_boxes_table()
+                self._load_document(path)
             except Exception as e:
                 QMessageBox.critical(self, 'Failed to open PDF', str(e))
 
-    def _on_words_row_selected(self, row: int):
-        self.page_view.highlight_word_box(row)
+    def _load_document(self, path: str) -> None:
+        self.doc = PdfDocument(path)
+        self.page_view.render_page(self.doc.get_current_page())
+        self._update_status()
+        self._update_word_boxes_table()
+        RegEditor.save_last_path(path)
 
-    def _on_words_row_deleted(self, row: int):
-        self.pdf_words_widget.mark_row_for_deletion(row)
-        self.doc.mark_word_box_for_deletion()
+    def _on_save_action_triggered(self):
+        last_path = RegEditor.get_last_path()
+        path, _ = QFileDialog.getSaveFileName(self, 'Save PDF As', last_path, 'PDF File (*.pdf)')
+
+        if path:
+            self.doc.save_as(path)
+            self._load_document(path)
+            
+    def _on_save_debug_action_triggered(self) -> None:
+        last_path = RegEditor.get_last_path()
+        path, _ = QFileDialog.getSaveFileName(self, 'Save Debug PDF As', last_path, 'PDF File (*.pdf)')
+
+        if path:
+            self.doc.saveas_debug(path)
+
+    def _on_word_selected(self, word_id: uuid.UUID):
+        self.page_view.highlight_word_box(word_id)
+        self.pdf_words_widget.select_row(word_id)
         
+    def _on_word_resize(self, word_id: uuid.UUID):
+        self.pdf_words_widget.update_word_by_id(word_id)
+
+    def _on_words_row_deleted(self, word_id: uuid.UUID):
+        self.doc.mark_word_for_deletion(word_id)
+        self.page_view.mark_word_box_for_deletion(word_id)
+
     def _on_toggle_text_boxes(self, enabled: bool) -> None:
         self.page_view.toggle_text_boxes(enabled)
+        self._on_toggle_show_space_boxes(self.toggle_show_space_boxes_action.isChecked())
+
+    def _on_toggle_show_space_boxes(self, enabled: bool) -> None:
+        self.page_view.toggle_space_text_boxes(enabled)
+        self.pdf_words_widget.toggle_show_space_only_text(enabled)
 
     def _on_next_page(self):
-        self.doc.increment_page_index()
-        self.page_view.render_page(self.doc.get_current_page())
+        self.page_view.render_page(self.doc.get_next_page())
         self._update_word_boxes_table()
 
     def _on_prev_page(self):
-        self.doc.decrement_page_index()
-        self.page_view.render_page(self.doc.get_current_page())
+        self.page_view.render_page(self.doc.get_prev_page())
         self._update_word_boxes_table()
-        
+
     def _zoom_out(self):
         self.page_view.zoom_out()
         self._update_status()
@@ -134,7 +185,8 @@ class MainWindow(QMainWindow):
                                   f'Zoom {self.page_view.zoom:.0%}')
 
     def _update_word_boxes_table(self):
-        self.pdf_words_widget.set_word_boxes(self.page_view.doc.get_word_boxes_current_page())
+        self.pdf_words_widget.set_word_boxes(self.doc.get_words_current_page())
+        self.pdf_words_widget.toggle_show_space_only_text(self.toggle_show_space_boxes_action.isChecked())
 
     def _get_window_title(self):
         if self.doc:
