@@ -1,7 +1,7 @@
 ﻿import uuid
 
 from PyQt6.QtCore import pyqtSignal, Qt, QPoint
-from PyQt6.QtGui import QAction, QColor
+from PyQt6.QtGui import QAction, QColor, QKeyEvent
 from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QMenu
 
 from src.PdfDocument import PdfWord
@@ -20,6 +20,9 @@ class TableItem(QTableWidgetItem):
     def __init__(self, value: str, word: PdfWord):
         super().__init__(value)
         self.word = word
+        self._default_foreground = self.foreground()
+        self._default_background = self.background()
+        self._default_font = self.font()
 
         if self.word.is_marked_for_deletion():
             self.style_deleted()
@@ -31,6 +34,11 @@ class TableItem(QTableWidgetItem):
             self.setFlags(self.flags() | Qt.ItemFlag.ItemIsEditable)
         else:
             self.setFlags(self.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            
+    def reset_style(self):
+        self.setForeground(self._default_foreground)
+        self.setBackground(self._default_background)
+        self.setFont(self._default_font)
 
     def style_deleted(self):
         self.setBackground(ROW_DELETED_COLOR)
@@ -71,27 +79,20 @@ class PdfWordsWidget(QTableWidget):
 
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
+        
+    def clear(self) -> None:
+        self._words = []
+        self._word_row_index = dict()
+        self.setRowCount(0)
 
     @log
     def set_word_boxes(self, words: list[PdfWord]) -> None:
         self.blockSignals(True)
         try:
-            self._words = []
-            self._word_row_index = dict()
-            self.setRowCount(len(words))
+            self.clear()
 
             for row, word in enumerate(words):
-                values = word_to_values(word)
-                for col, row_val in enumerate(values):
-                    item = TableItem(row_val, word)
-                    if col not in EDITABLE_COLS:
-                        item.set_editable(False)
-
-                    self.setItem(row, col, item)
-                    
-                self._words.append(word)
-                self._word_row_index[word.uuid] = row
-                self.update_word(word, row)
+                self.add_word_to_table(word, False)
         finally:
             self.blockSignals(False)
 
@@ -113,6 +114,28 @@ class PdfWordsWidget(QTableWidget):
             word = self._words[row]
             self.setRowHidden(row, word.is_only_space() and not show)
 
+    def add_word_to_table(self, word: PdfWord, block_signals: bool = True) -> None:
+        row = self.rowCount()
+        self.setRowCount(row + 1)
+        values = word_to_values(word)
+
+        try:
+            if block_signals:
+                self.blockSignals(True)
+            for col, row_val in enumerate(values):
+                item = TableItem(row_val, word)
+                if col not in EDITABLE_COLS:
+                    item.set_editable(False)
+
+                self.setItem(row, col, item)
+
+            self._words.append(word)
+            self._word_row_index[word.uuid] = row
+            self.update_word(word, row)
+        finally:
+            if block_signals:
+                self.blockSignals(False)
+
     def update_word_by_id(self, word_id: uuid.UUID) -> None:
         row = self.get_word_row(word_id)
         word = self._words[row]
@@ -129,6 +152,16 @@ class PdfWordsWidget(QTableWidget):
                 if item:
                     item.setText(updated_values[col])
                     item.style_edited()
+                    
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Delete:
+            selected_indices = self.selectedIndexes()
+            for i in selected_indices:
+                self._on_row_deleted(i.row())
+            event.accept()
+            return 
+        
+        super().keyPressEvent(event)
 
     def _on_cell_clicked(self, row: int, column: int):
         if 0 < row < len(self._words):
@@ -144,7 +177,8 @@ class PdfWordsWidget(QTableWidget):
         new_text = item.text()
         word = self._words[row]
         word.edit_text(new_text)
-        item.style_edited()
+        if word.is_edited():
+            item.style_edited()
         self.word_edited.emit(word.uuid)
 
     def _show_context_menu(self, pos: QPoint) -> None:

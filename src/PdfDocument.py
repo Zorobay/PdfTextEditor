@@ -15,8 +15,10 @@ logger = logging.getLogger(__name__)
 # Applicable for fontname='helv', lineheight=1.0
 LINE_HEIGHT_FACTOR = 1.30
 
+DEFAULT_FONT = 'Helv'
 
-def fit_fontsize(text: str, rect: pymupdf.Rect, fontname: str = 'helv') -> float:
+
+def fit_fontsize(text: str, rect: pymupdf.Rect, fontname: str = DEFAULT_FONT) -> float:
     """Largest fontsize that fits `text` inside `rect` on one line, without
     overflowing either dimension."""
     if not text:
@@ -42,14 +44,14 @@ def _measure_natural_bbox(text: str, fontname: str, ref_size: float, anchor: pym
         return None
     return pymupdf.Rect(
         min(w[0] for w in words),
-               min(w[1] for w in words),
-               max(w[2] for w in words),
-               max(w[3] for w in words))
+        min(w[1] for w in words),
+        max(w[2] for w in words),
+        max(w[3] for w in words))
 
 
 class PdfWord:
 
-    def __init__(self, rect: pymupdf.Rect, text: str, font_size: float, font: str):
+    def __init__(self, rect: pymupdf.Rect, text: str, font_size: float, font: str = DEFAULT_FONT):
         self.uuid = uuid.uuid4()
         self.rect = rect
         self._orig_rect = pymupdf.Rect(rect)
@@ -71,7 +73,7 @@ class PdfWord:
             rect = pymupdf.Rect(bbox[0], bbox[1], bbox[2], bbox[3])
         else:
             rect = pymupdf.Rect()
-        return PdfWord(rect, span.get('text', ''), span.get('size', 12), span.get('font', 'Helv'))
+        return PdfWord(rect, span.get('text', ''), span.get('size', 12), span.get('font', DEFAULT_FONT))
 
     def mark_for_deletion(self):
         self._is_marked_for_deletion = True
@@ -146,8 +148,14 @@ class PdfPage:
     def get_words(self) -> list[PdfWord]:
         return self._words
 
-    def get_pixmap(self, zoom: float) -> QPixmap:
-        matrix = pymupdf.Matrix(zoom, zoom)
+    def delete_word(self, word: PdfWord) -> None:
+        self._page.add_redact_annot(word.original_rect(), fill=None)
+
+    def add_word(self, word: PdfWord) -> None:
+        self._words.append(word)
+
+    def get_pixmap(self, scale: float) -> QPixmap:
+        matrix = pymupdf.Matrix(scale, scale)
         pixmap = self._page.get_pixmap(matrix=matrix, alpha=True)
         image = QImage(pixmap.samples, pixmap.width, pixmap.height, pixmap.stride, QImage.Format.Format_RGBA8888)
 
@@ -155,47 +163,33 @@ class PdfPage:
         # before the underlying pixmap object is garbage collected.
         return QPixmap.fromImage(image.copy())
 
-    def delete_word(self, word: PdfWord) -> None:
-        self._page.add_redact_annot(word.original_rect(), fill=None)
-
-    def insert_word(self, word: PdfWord):
-        if not word.text():
-            return
-        # self._page.insert_text((word.rect.x0, word.rect.y1), word.text(), fontsize=word.font_size, fontname='helv',
-        #                        render_mode=PdfRenderMode.INVISIBLE)
-        font_size = fit_fontsize(word.text(), word.rect, fontname='helv')
-        res = self._page.insert_textbox(word.rect, word.text(), fontname='helv', fontsize=font_size, lineheight=1.0,
-                                        render_mode=PdfRenderMode.INVISIBLE)
-        if res < 0:
-            raise Exception('WTF!')
-
-    def insert_word_morph(self, word:PdfWord) -> None:
+    def insert_word_morph(self, word: PdfWord) -> None:
         """Insert `text` so its rendered bbox matches `rect` exactly (to float
         rounding) - measures the real size once, then solves for the affine
         transform mapping that measurement onto `rect`, instead of guessing a
         fontsize from approximate font metrics."""
         rect = word.rect
         text = word.text()
-        fontname = 'helv'
+        fontname = DEFAULT_FONT
         ref_size = word.font_size
         anchor = pymupdf.Point(rect.x0, rect.y1)
         natural = _measure_natural_bbox(text, fontname, ref_size, anchor)
         if natural is None or natural.width == 0 or natural.height == 0:
             return  # nothing to place (e.g. whitespace-only text)
-    
+
         sx = rect.width / natural.width
         sy = rect.height / natural.height
-    
+
         # fixpoint solves: fixpoint + scale * (natural_corner - fixpoint) == target_corner,
         # i.e. the pivot point that makes the scale-about-a-point transform land exactly
         # on `rect` given where the reference text actually rendered.
         EPS = 1e-9
         fx = (rect.x0 - sx * natural.x0) / (1 - sx) if abs(1 - sx) > EPS else natural.x0
         fy = (rect.y0 - sy * natural.y0) / (1 - sy) if abs(1 - sy) > EPS else natural.y0
-    
+
         self._page.insert_text(anchor, text, fontsize=ref_size, fontname=fontname,
-                         render_mode=PdfRenderMode.INVISIBLE,
-                         morph=(pymupdf.Point(fx, fy), pymupdf.Matrix(sx, sy)))
+                               render_mode=PdfRenderMode.INVISIBLE,
+                               morph=(pymupdf.Point(fx, fy), pymupdf.Matrix(sx, sy)))
 
     def apply_deletions(self) -> None:
         self._page.apply_redactions(images=0, graphics=0, text=0)
@@ -230,16 +224,22 @@ class PdfDocument:
             print(f'Loaded page {i} of {self.doc.page_count}')
         return out
 
+    def set_current_page(self, page_index: int) -> PdfPage:
+        if 0 <= page_index < self.page_count():
+            self.current_page_index = page_index
+            
+        return self.get_current_page()
+            
     def get_current_page(self) -> PdfPage:
         page = self.pages[self.current_page_index]
         page.load_words()
         return page
 
-    def get_next_page(self) -> PdfPage:
+    def set_next_page(self) -> PdfPage:
         self.increment_page_counter()
         return self.get_current_page()
 
-    def get_prev_page(self) -> PdfPage:
+    def set_prev_page(self) -> PdfPage:
         self.decrement_page_counter()
         return self.get_current_page()
 
@@ -260,6 +260,12 @@ class PdfDocument:
         for word in page_words:
             if word.uuid == word_id:
                 word.mark_for_deletion()
+
+    def add_new_word(self, rect: pymupdf.Rect, text: str) -> PdfWord:
+        page = self.get_current_page()
+        word = PdfWord(rect, text, rect.height / 1.3)
+        page.add_word(word)
+        return word
 
     def save(self) -> None:
         """Save changes back to the file this document was opened from."""
