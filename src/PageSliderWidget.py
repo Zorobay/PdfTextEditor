@@ -40,6 +40,17 @@ class PageSliderWidget(QListWidget):
             item.setText(str(row))
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
             self.addItem(item)
-            
+
+    def set_active_page(self, page_index: int)->None:
+        self.blockSignals(True)
+        try:
+            self.setCurrentRow(page_index)
+            item = self.item(page_index)
+            self.scrollToItem(item, QListWidget.ScrollHint.PositionAtCenter)
+        finally:
+            self.blockSignals(False)
+
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
-        self.page_selected.emit(self.row(item))
+        row = self.row(item)
+        self.set_active_page(row)
+        self.page_selected.emit(row)

@@ -143,13 +143,13 @@ class WordGraphicsRect(QGraphicsRectItem):
         new_rect = QRectF(self._resize_start_rect)
 
         if self._resize_edge == RectEdge.LEFT:
-            new_rect.setLeft(min(new_rect.left() + delta.x(), new_rect.right() - self.MIN_SIZE_PIX))
+            new_rect.setLeft(min(new_rect.left() + delta.x(), new_rect.right() - MIN_SIZE_PIX))
         elif self._resize_edge == RectEdge.RIGHT:
-            new_rect.setRight(max(new_rect.right() + delta.x(), new_rect.left() + self.MIN_SIZE_PIX))
+            new_rect.setRight(max(new_rect.right() + delta.x(), new_rect.left() + MIN_SIZE_PIX))
         elif self._resize_edge == RectEdge.TOP:
-            new_rect.setTop(min(new_rect.top() + delta.y(), new_rect.bottom() - self.MIN_SIZE_PIX))
+            new_rect.setTop(min(new_rect.top() + delta.y(), new_rect.bottom() - MIN_SIZE_PIX))
         elif self._resize_edge == RectEdge.BOTTOM:
-            new_rect.setBottom(max(new_rect.bottom() + delta.y(), new_rect.top() + self.MIN_SIZE_PIX))
+            new_rect.setBottom(max(new_rect.bottom() + delta.y(), new_rect.top() + MIN_SIZE_PIX))
 
         self._clamp_rect_to_page_bounds(new_rect)
         self.setRect(new_rect)

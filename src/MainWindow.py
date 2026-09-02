@@ -6,7 +6,7 @@ from PyQt6.QtGui import QAction, QKeySequence, QIcon
 from PyQt6.QtWidgets import QMainWindow, QStatusBar, QToolBar, QLabel, QFileDialog, QMessageBox, QDockWidget, QWidget, \
     QVBoxLayout
 
-from src import RegEditor
+from src import Settings
 from src.PageSliderWidget import PageSliderWidget
 from src.PdfDocument import PdfDocument
 from src.PdfWordsWidget import PdfWordsWidget
@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
         self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, self.tools_tool_bar)
 
     def _on_open_action_triggered(self):
-        last_path = RegEditor.get_last_path()
+        last_path = Settings.get_last_path()
         path, _ = QFileDialog.getOpenFileName(self, 'Open PDF', last_path, 'PDF Files (*.pdf)')
 
         if path:
@@ -165,10 +165,10 @@ class MainWindow(QMainWindow):
         self.page_slider_widget.set_document(self.doc)
         self._update_status()
         self._update_word_boxes_table()
-        RegEditor.save_last_path(path)
+        Settings.save_last_path(path)
 
     def _on_save_action_triggered(self):
-        last_path = RegEditor.get_last_path()
+        last_path = Settings.get_last_path()
         path, _ = QFileDialog.getSaveFileName(self, 'Save PDF As', last_path, 'PDF File (*.pdf)')
 
         if path:
@@ -177,7 +177,7 @@ class MainWindow(QMainWindow):
             self._load_document(path, current_page)
 
     def _on_save_debug_action_triggered(self) -> None:
-        last_path = RegEditor.get_last_path()
+        last_path = Settings.get_last_path()
         path, _ = QFileDialog.getSaveFileName(self, 'Save Debug PDF As', last_path, 'PDF File (*.pdf)')
 
         if path:
@@ -216,10 +216,12 @@ class MainWindow(QMainWindow):
 
     def _on_next_page(self):
         self.page_view.render_page(self.doc.set_next_page())
+        self.page_slider_widget.set_active_page(self.doc.current_page_index)
         self._update_word_boxes_table()
 
     def _on_prev_page(self):
         self.page_view.render_page(self.doc.set_prev_page())
+        self.page_slider_widget.set_active_page(self.doc.current_page_index)
         self._update_word_boxes_table()
 
     def _zoom_out(self):
