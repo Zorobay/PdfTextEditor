@@ -63,6 +63,12 @@ class PdfPageView(QGraphicsView):
     def render_page(self, page: PdfPage) -> None:
         self.page = page
         self._render_active_page()
+        self.scroll_to_top()
+
+    def scroll_to_top(self) -> None:
+        scroller = self.verticalScrollBar()
+        if scroller:
+            scroller.setValue(0)
 
     def mark_word_box_for_deletion(self, word_id: uuid.UUID):
         wb = self._word_rects[word_id]

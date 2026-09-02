@@ -6,6 +6,7 @@ from PyQt6.QtGui import QAction, QKeySequence, QIcon
 from PyQt6.QtWidgets import QMainWindow, QStatusBar, QToolBar, QLabel, QFileDialog, QMessageBox, QDockWidget, QWidget, \
     QVBoxLayout
 
+from misc import ocr
 from src import Settings
 from src.PageSliderWidget import PageSliderWidget
 from src.PdfDocument import PdfDocument
@@ -191,7 +192,8 @@ class MainWindow(QMainWindow):
         self.pdf_words_widget.update_word_by_id(word_id)
 
     def _on_word_drawn(self, rect: pymupdf.Rect, text: str) -> None:
-        word = self.doc.add_new_word(rect, text)
+        ocr_text = ocr.ocr_rect(self.doc.get_current_page(), rect)
+        word = self.doc.add_new_word(rect, ocr_text if ocr_text else '')
         self.pdf_words_widget.add_word_to_table(word)
         self.page_view.add_word(word)
 

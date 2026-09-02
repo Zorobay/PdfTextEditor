@@ -51,7 +51,7 @@ def _measure_natural_bbox(text: str, fontname: str, ref_size: float, anchor: pym
 
 class PdfWord:
 
-    def __init__(self, rect: pymupdf.Rect, text: str, font_size: float, font: str = DEFAULT_FONT):
+    def __init__(self, rect: pymupdf.Rect, text: str, font_size: float, font: str = DEFAULT_FONT, is_new:bool=True):
         self.uuid = uuid.uuid4()
         self.rect = rect
         self._orig_rect = pymupdf.Rect(rect)
@@ -60,6 +60,15 @@ class PdfWord:
         self.font_size = font_size
         self.font = font
         self._is_marked_for_deletion = False
+        self._is_new = is_new
+
+    @classmethod
+    def from_pymupdf_dict(cls, span:dict)->'PdfWord':
+        if bbox := span.get('bbox'):
+            rect = pymupdf.Rect(bbox[0], bbox[1], bbox[2], bbox[3])
+        else:
+            rect = pymupdf.Rect()
+        return PdfWord(rect, span.get('text', ''), span.get('size', 12), span.get('font', DEFAULT_FONT), is_new=False)
 
     def text(self) -> str:
         return self._edited_text
@@ -69,11 +78,7 @@ class PdfWord:
 
     @classmethod
     def from_span_dict(cls, span: dict) -> 'PdfWord':
-        if bbox := span.get('bbox'):
-            rect = pymupdf.Rect(bbox[0], bbox[1], bbox[2], bbox[3])
-        else:
-            rect = pymupdf.Rect()
-        return PdfWord(rect, span.get('text', ''), span.get('size', 12), span.get('font', DEFAULT_FONT))
+        return PdfWord.from_pymupdf_dict(span)
 
     def mark_for_deletion(self):
         self._is_marked_for_deletion = True
@@ -111,6 +116,12 @@ class PdfWord:
         """Returns true if the text content of this word is only space"""
         return self._edited_text.strip() == ''
 
+    def should_be_inserted(self)->bool:
+        return not self.is_marked_for_deletion() and (self.is_edited() or self._is_new)
+
+    def should_be_deleted(self)->bool:
+        return not self._is_new and (self.is_marked_for_deletion() or self.is_edited())
+
     def edit_text(self, new_text: str):
         if self._orig_text != new_text:
             self._edited_text = new_text
@@ -124,12 +135,15 @@ class PdfPage:
         self._loaded = False
         self._words: list[PdfWord] = []
 
+    def page(self)->pymupdf.Page:
+        return self._page
+
     @log
     def load_words(self):
         if self._loaded:
             return
         self._words = []
-        blocks = self._page.get_text('dict', flags=self.EXCLUDE_IMAGES_FROM_TEXT_EXTRACTION_FLAGS).get('blocks', [])
+        blocks = self._page.get_text('dict', sort=True, flags=self.EXCLUDE_IMAGES_FROM_TEXT_EXTRACTION_FLAGS).get('blocks', [])
 
         for block in blocks:
             lines = block.get('lines', [])
@@ -263,7 +277,7 @@ class PdfDocument:
 
     def add_new_word(self, rect: pymupdf.Rect, text: str) -> PdfWord:
         page = self.get_current_page()
-        word = PdfWord(rect, text, rect.height / 1.3)
+        word = PdfWord(rect, text, rect.height / 1.3, is_new=True)
         page.add_word(word)
         return word
 
@@ -279,15 +293,13 @@ class PdfDocument:
             try:
                 page_words = page.get_words()
 
-                for word in page_words:
-                    if word.is_marked_for_deletion() or word.is_edited():
-                        page.delete_word(word)
+                for word in [w for w in page_words if w.should_be_deleted()]:
+                    page.delete_word(word)
 
                 page.apply_deletions()
 
-                for word in page_words:
-                    if word.is_edited() and not word.is_marked_for_deletion():
-                        page.insert_word_morph(word)
+                for word in [w for w in page_words if w.should_be_inserted()]:
+                    page.insert_word_morph(word)
             except Exception as e:
                 logger.error(f'Could not apply edits to page {page.page_number()}: {str(e)}')
 
