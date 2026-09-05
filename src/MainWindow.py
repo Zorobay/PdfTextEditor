@@ -6,12 +6,12 @@ from PyQt6.QtGui import QAction, QKeySequence, QIcon
 from PyQt6.QtWidgets import QMainWindow, QStatusBar, QToolBar, QLabel, QFileDialog, QMessageBox, QDockWidget, QWidget, \
     QVBoxLayout
 
-from misc import ocr
 from src import Settings
 from src.PageSliderWidget import PageSliderWidget
-from src.PdfDocument import PdfDocument
 from src.PdfWordsWidget import PdfWordsWidget
+from src.misc import ocr
 from src.page_view.PdfPageView import PdfPageView
+from src.pdf.PdfDocument import PdfDocument
 
 
 class CentralWidget(QWidget):
@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
         # Signals
         self.pdf_words_widget.word_selected.connect(self._on_word_selected)
         self.pdf_words_widget.word_deleted.connect(self._on_words_row_deleted)
+        self.pdf_words_widget.update_word_with_ocr.connect(self._update_word_from_ocr)
         self.page_view.word_selected.connect(self._on_word_selected)
         self.page_view.word_resized.connect(self._on_word_resize)
         self.page_view.word_drawn.connect(self._on_word_drawn)
@@ -163,7 +164,7 @@ class MainWindow(QMainWindow):
         self.doc = PdfDocument(path)
         self.doc.set_current_page(page_index)
         self.page_view.render_page(self.doc.get_current_page())
-        self.page_slider_widget.set_document(self.doc)
+        self.page_slider_widget.set_document(self.doc, page_index)
         self._update_status()
         self._update_word_boxes_table()
         Settings.save_last_path(path)
@@ -193,13 +194,19 @@ class MainWindow(QMainWindow):
 
     def _on_word_drawn(self, rect: pymupdf.Rect, text: str) -> None:
         ocr_text = ocr.ocr_rect(self.doc.get_current_page(), rect)
-        word = self.doc.add_new_word(rect, ocr_text if ocr_text else '')
+        word = self.doc.add_new_word(rect, ocr_text if ocr_text else text)
         self.pdf_words_widget.add_word_to_table(word)
         self.page_view.add_word(word)
 
     def _on_words_row_deleted(self, word_id: uuid.UUID):
         self.doc.mark_word_for_deletion(word_id)
         self.page_view.mark_word_box_for_deletion(word_id)
+
+    def _update_word_from_ocr(self, word_id: uuid.UUID):
+        word = self.doc.get_current_page().get_word(word_id)
+        ocr_text = ocr.ocr_rect(self.doc.get_current_page(), word.rect)
+        word.edit_text(ocr_text)
+        self.pdf_words_widget.update_word(word)
 
     def _on_toggle_text_boxes(self, enabled: bool) -> None:
         self.page_view.toggle_text_boxes(enabled)
@@ -211,20 +218,23 @@ class MainWindow(QMainWindow):
 
     def _on_add_box_action_triggered(self) -> None:
         self.page_view.set_draw_mode(True)
-        
+
     def _on_page_slider_page_selected(self, page_index: int) -> None:
         self.page_view.render_page(self.doc.set_current_page(page_index))
         self._update_word_boxes_table()
+        self._update_status()
 
     def _on_next_page(self):
         self.page_view.render_page(self.doc.set_next_page())
         self.page_slider_widget.set_active_page(self.doc.current_page_index)
         self._update_word_boxes_table()
+        self._update_status()
 
     def _on_prev_page(self):
         self.page_view.render_page(self.doc.set_prev_page())
         self.page_slider_widget.set_active_page(self.doc.current_page_index)
         self._update_word_boxes_table()
+        self._update_status()
 
     def _zoom_out(self):
         self.page_view.zoom_out()

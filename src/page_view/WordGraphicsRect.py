@@ -4,7 +4,7 @@ import uuid
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsSceneHoverEvent, QGraphicsSceneMouseEvent
 
-from src.PdfDocument import PdfWord
+from src.pdf.PdfWord import PdfWord
 from src.enums.GraphicsRectStyle import GraphicsRectStyle
 from src.enums.RectEdge import RectEdge
 from src.misc.math import is_diff_within_tolerance

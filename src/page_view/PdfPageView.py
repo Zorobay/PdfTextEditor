@@ -5,7 +5,8 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF
 from PyQt6.QtGui import QPainter, QPixmap, QMouseEvent
 from PyQt6.QtWidgets import QGraphicsView, QWidget, QGraphicsScene, QGraphicsPixmapItem
 
-from src.PdfDocument import PdfPage, PdfWord
+from src.pdf.PdfWord import PdfWord
+from src.pdf.PdfPage import PdfPage
 from src.misc.pdf import qt_rect_to_pdf_rect
 from src.page_view.DrawPreviewRect import DrawPreviewRect
 from src.page_view.WordGraphicsRect import WordGraphicsRect
